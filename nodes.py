@@ -25,7 +25,7 @@ class SaveSingleFrameToDisk:
             },
             "optional": {
                 "output_dir": ("STRING", {"default": "./frames/%Y%m%d_%H%M%S"}),
-                "filename_pattern": ("STRING", {"default": "frame_{index:04d}.png"}),
+                "filename_pattern": ("STRING", {"default": "frame.png"}),
                 "fmt": ("STRING", {"default": "png"}),
             },
         }
@@ -35,7 +35,8 @@ class SaveSingleFrameToDisk:
     FUNCTION = "save_single"
     CATEGORY = "Rynode/LowMem"
 
-    def save_single(self, image, output_dir: str = "./frames/%Y%m%d_%H%M%S", filename_pattern: str = "frame_{index:04d}.png", fmt: str = "png"):
+    def save_single(self, image, output_dir: str = "./frames/%Y%m%d_%H%M%S", filename_pattern: str = "frame.png", fmt: str = "png"):
+        # 对于单帧保存，可以直接使用FrameSaver
         saver = FrameSaver(output_dir, filename_pattern, fmt)
         preview_img = to_pil(image)
         path = saver.save_pil(preview_img)
@@ -64,6 +65,10 @@ class SaveFrameBatchToDisk:
     CATEGORY = "Rynode/LowMem"
 
     def save_batch(self, images, output_dir: str = "./frames/%Y%m%d_%H%M%S", filename_pattern: str = "frame_{index:04d}.png", fmt: str = "png"):
+        # 检查filename_pattern是否包含序列占位符
+        if "{index" not in filename_pattern and "%d" not in filename_pattern:
+            raise ValueError("filename_pattern must contain a sequence placeholder like {index} or %d")
+            
         saver = FrameSaver(output_dir, filename_pattern, fmt)
         pil_list = pil_list_from_image_input(images)
         paths = []

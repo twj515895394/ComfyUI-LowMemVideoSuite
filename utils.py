@@ -30,11 +30,21 @@ def resolve_path_with_output_base(path: str) -> Path:
     return output_dir / p
 
 def resolve_time_pattern(path: str) -> str:
+    import re
     now = datetime.now()
+    # 处理 %yyyyMMdd HHmmss% 的旧格式
     if "%yyyyMMdd HHmmss%" in path:
         legacy = now.strftime("%Y%m%d %H%M%S")
         path = path.replace("%yyyyMMdd HHmmss%", legacy)
-    return now.strftime(path)
+    
+    # 处理 %xxx% 格式的时间占位符
+    def replace_time_format(match):
+        format_str = match.group(1)
+        return now.strftime(format_str)
+    
+    # 查找所有 %xxx% 格式的占位符并替换
+    path = re.sub(r'%([^%]+)%', replace_time_format, path)
+    return path
 
 def ensure_dir(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
@@ -104,8 +114,14 @@ class FrameSaver:
         self.fmt = fmt.lower()
         ensure_dir(self.output_dir)
         self.index = self._load_last_index()
+        # 检查filename_pattern是否包含index占位符
+        self.has_index_placeholder = '{index' in filename_pattern
 
     def _load_last_index(self) -> int:
+        # 只有当文件名模式包含index占位符时才加载最后的索引
+        if not self.has_index_placeholder:
+            return 0
+            
         files = sorted(self.output_dir.glob("*"))
         if not files:
             return 0
@@ -122,7 +138,15 @@ class FrameSaver:
 
     def save_pil(self, image: Image.Image) -> str:
         ensure_dir(self.output_dir)
-        filename = self.filename_pattern.format(index=self.index)
+        # 如果文件名不包含index占位符，则使用固定文件名
+        if self.has_index_placeholder:
+            # 支持两种格式: {index:04d} 和 %04d
+            if '{index' in self.filename_pattern:
+                filename = self.filename_pattern.format(index=self.index)
+            else:  # %d 格式
+                filename = self.filename_pattern % self.index
+        else:
+            filename = self.filename_pattern
         path = self.output_dir / filename
         try:
             image.save(str(path), format=self.fmt.upper())
@@ -138,44 +162,7 @@ class FrameSaver:
 
     def save_batch_from_any(self, images_any) -> List[str]:
         imgs = pil_list_from_image_input(images_any)
+        # 批量保存时强制检查必须有占位符
+        if not self.has_index_placeholder:
+            raise ValueError("filename_pattern must contain a sequence placeholder like {index} or %d for batch saving")
         return [self.save_pil(im) for im in imgs]
-
-def combine_frames_ffmpeg(frames_dir: str, output_path: str, fps: int = 30, codec: str = "libx264", crf: int = 23, frame_pattern: str = "frame_%04d.png", extra_flags: list | None = None, timeout: int | None = None):
-    p = resolve_path_with_output_base(resolve_time_pattern(frames_dir))
-    if not p.exists():
-        raise FileNotFoundError(f"Frames directory not found: {p}")
-    input_pattern = str(p / frame_pattern)
-    cmd = [
-        "ffmpeg",
-        "-y",
-        "-framerate", str(fps),
-        "-i", input_pattern,
-        "-c:v", codec,
-        "-crf", str(crf),
-        "-pix_fmt", "yuv420p",
-        str(output_path),
-    ]
-    if extra_flags:
-        cmd.extend(extra_flags)
-    logger.info("Running ffmpeg: %s", " ".join(cmd))
-    subprocess.run(cmd, check=True)
-
-def clean_frames_folder(frames_dir: str, keep_last: bool = True):
-    p = resolve_path_with_output_base(resolve_time_pattern(frames_dir))
-    if not p.exists():
-        return
-    files = sorted([f for f in p.iterdir() if f.is_file()])
-    if not files:
-        try:
-            p.rmdir()
-        except Exception:
-            pass
-        return
-    if keep_last and len(files) > 0:
-        for f in files[:-1]:
-            try:
-                f.unlink()
-            except Exception as e:
-                logger.warning("Failed to delete %s: %s", f, e)
-    else:
-        shutil.rmtree(p, ignore_errors=True)

@@ -26,7 +26,8 @@
 
 ```bash
 pip install Pillow>=9.0.0 numpy torch
-```bash
+```
+
 系统工具：
 
 请自行安装并配置 FFmpeg，确保命令行可用。
@@ -35,81 +36,73 @@ Windows 推荐下载静态包，添加至系统 PATH；Linux/macOS 可通过包�
 ### 2. 部署
 将插件目录放入 ComfyUI custom_nodes 目录，如：
 
-
+```
 ComfyUI/custom_nodes/ComfyUI-LowMemVideoSuite/
-使用说明
-节点分类
+```
+
+## 使用说明
+
+### 节点分类
 位于 Rynode/LowMem 分类下。
 
-节点详情
-1. 保存单帧到磁盘 / SaveSingleFrameToDisk
-输入
+### 节点详情
 
-image: 输入图片
+#### 1. 保存单帧到磁盘 / SaveSingleFrameToDisk
+##### 输入
 
-output_dir: 保存目录，支持时间格式，如 ./frames/%Y%m%d_%H%M%S
+- `image`: 输入图片
+- `output_dir`: 保存目录，支持时间格式，如 `./frames/%Y%m%d_%H%M%S` 或 `./output/%Y%m%d%`
+- `filename_pattern`: 文件名模板，可以是固定文件名如 `cover.png`，也可以是带占位符的格式如 `frame_{index:04d}.png`
+- `fmt`: 图片格式，默认 png
 
-filename_pattern: 文件名模板，如 frame_{index:04d}.png
+##### 输出
 
-fmt: 图片格式，默认 png
+- `path`: 保存的图片路径
+- `preview`: 预览缩略图
 
-输出
+#### 2. 批量保存帧到磁盘 / SaveFrameBatchToDisk
+##### 输入
 
-path: 保存的图片路径
+- `images`: 图片列表
+- `output_dir`: 保存目录，支持时间格式，如 `./frames/%Y%m%d_%H%M%S` 或 `./output/%Y%m%d%`
+- `filename_pattern`: 文件名模板，必须带序列占位符（`%04d` 或 `{index}`），如 `frame_%04d.png` 或 `frame_{index:04d}.png`
+- `fmt`: 图片格式，默认 png
 
-preview: 预览缩略图
+##### 输出
 
-2. 批量保存帧到磁盘 / SaveFrameBatchToDisk
-输入
+- `paths`: 图片路径列表
+- `preview`: 最后一帧缩略图
 
-images: 图片列表
+#### 3. FFmpeg 视频合成（低内存） / FFmpegVideoCombineLowMem
+##### 输入
 
-其余同上
+- `frames_dir`: 帧图片目录，支持时间格式
+- `output_video_path`: 视频输出路径，支持 `{timestamp}` 替换为当前时间
+- `fps`: 视频帧率，默认30
+- `codec`: 视频编码，默认 libx264
+- `crf`: 质量参数，默认23
+- `frame_pattern`: 图片帧名匹配，默认 `frame_%04d.png`
+- `delete_frames`: 是否合成后删除帧文件，默认 true
+- `keep_last_frame`: 删除时是否保留最后一帧，默认 true
 
-输出
+##### 输出
 
-paths: 图片路径列表
+- `video_path`: 生成视频完整路径
 
-preview: 最后一帧缩略图
+## 使用流程示例
 
-3. FFmpeg 视频合成（低内存） / FFmpegVideoCombineLowMem
-输入
+1. 采样生成或处理图片帧
+2. 使用"批量保存帧到磁盘"节点，保存图片到指定目录（支持时间变量自动创建目录）
+3. 调用"FFmpeg 视频合成（低内存）"节点，将保存帧目录传入，配置输出路径及参数
+4. 视频合成完成，自动删除临时帧（可选择保留最后一帧）
 
-frames_dir: 帧图片目录，支持时间格式
+## 常见问题
 
-output_video_path: 视频输出路径，支持 {timestamp} 替换为当前时间
-
-fps: 视频帧率，默认30
-
-codec: 视频编码，默认 libx264
-
-crf: 质量参数，默认23
-
-frame_pattern: 图片帧名匹配，默认 frame_%04d.png
-
-delete_frames: 是否合成后删除帧文件，默认 true
-
-keep_last_frame: 删除时是否保留最后一帧，默认 true
-
-输出
-
-video_path: 生成视频完整路径
-
-使用流程示例
-采样生成或处理图片帧
-
-使用“批量保存帧到磁盘”节点，保存图片到指定目录（支持时间变量自动创建目录）
-
-调用“FFmpeg 视频合成（低内存）”节点，将保存帧目录传入，配置输出路径及参数
-
-视频合成完成，自动删除临时帧（可选择保留最后一帧）
-
-常见问题
-ffmpeg 找不到命令
+### ffmpeg 找不到命令
 请确认系统已正确安装 ffmpeg，并且 ffmpeg 可在命令行中直接运行。
 
-保存路径无效或文件没生成
+### 保存路径无效或文件没生成
 确认 output_dir 是否正确，有权限写入，支持时间格式的路径会自动替换。
 
-视频播放异常或无视频
+### 视频播放异常或无视频
 确认帧图片命名连续且符合 frame_pattern，fps 设置合理。
