@@ -1,5 +1,5 @@
-from comfy.model import Node
-from comfy.model.types import ImageType, StringType
+from modules.nodes import Node
+from modules.nodes import ImageType, StringType
 from .utils import parse_time_tokens, save_comfyui_image, tensor_to_preview
 import subprocess
 import datetime
