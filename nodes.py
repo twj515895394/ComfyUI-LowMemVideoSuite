@@ -1,150 +1,136 @@
-from __future__ import annotations
-from typing import Optional, List, Any
-import logging
+from comfy.model import Node
+from comfy.model.types import ImageType, StringType
+from .utils import parse_time_tokens, save_comfyui_image, tensor_to_preview
+import subprocess
+import datetime
+import os
 
-from PIL import Image
+class SaveSingleFrameToDisk(Node):
+    title = "保存单帧到磁盘"
+    type = "Rynode/LowMem"
 
-from .utils import (
-    FrameSaver,
-    combine_frames_ffmpeg,
-    clean_frames_folder,
-    resolve_time_pattern,
-    pil_list_from_image_input,
-    pil_to_preview_tensor,
-    to_pil,
-)
-
-logger = logging.getLogger(__name__)
-
-class SaveSingleFrameToDisk:
-    @classmethod
-    def INPUT_TYPES(cls):
+    def inputs(self):
         return {
-            "required": {
-                "image": ("IMAGE",),
-            },
-            "optional": {
-                "output_dir": ("STRING", {"default": "./frames/%Y%m%d_%H%M%S"}),
-                "filename_pattern": ("STRING", {"default": "frame_{index:04d}.png"}),
-                "fmt": ("STRING", {"default": "png"}),
-            },
+            "image": ImageType,
+            "output_dir": StringType,
+            "filename_pattern": StringType,
+            "fmt": StringType
         }
 
-    RETURN_TYPES = ("STRING", "IMAGE")
-    RETURN_NAMES = ("path", "preview")
-    FUNCTION = "save_single"
-    CATEGORY = "Rynode/LowMem"
-
-    def save_single(self, image, output_dir: str = "./frames/%Y%m%d_%H%M%S", filename_pattern: str = "frame_{index:04d}.png", fmt: str = "png"):
-        saver = FrameSaver(output_dir, filename_pattern, fmt)
-        preview_img = to_pil(image)
-        path = saver.save_pil(preview_img)
-        preview = pil_to_preview_tensor(preview_img)
-        logger.info(f"[SaveSingleFrameToDisk] Saved: {path}")
-        return (path, preview,)
-
-
-class SaveFrameBatchToDisk:
-    @classmethod
-    def INPUT_TYPES(cls):
+    def outputs(self):
         return {
-            "required": {
-                "images": ("IMAGE",),
-            },
-            "optional": {
-                "output_dir": ("STRING", {"default": "./frames/%Y%m%d_%H%M%S"}),
-                "filename_pattern": ("STRING", {"default": "frame_{index:04d}.png"}),
-                "fmt": ("STRING", {"default": "png"}),
-            },
+            "saved_path": StringType,
+            "preview": ImageType
         }
 
-    RETURN_TYPES = ("ARRAY", "IMAGE")
-    RETURN_NAMES = ("paths", "preview")
-    FUNCTION = "save_batch"
-    CATEGORY = "Rynode/LowMem"
+    def process(self, image, output_dir, filename_pattern="frame.png", fmt="png"):
+        dir_path = parse_time_tokens(output_dir)
+        os.makedirs(dir_path, exist_ok=True)
 
-    def save_batch(self, images, output_dir: str = "./frames/%Y%m%d_%H%M%S", filename_pattern: str = "frame_{index:04d}.png", fmt: str = "png"):
-        saver = FrameSaver(output_dir, filename_pattern, fmt)
-        pil_list = pil_list_from_image_input(images)
-        paths = []
-        for im in pil_list:
-            paths.append(saver.save_pil(im))
-        preview = pil_to_preview_tensor(pil_list[-1])
-        logger.info(f"[SaveFrameBatchToDisk] Saved {len(paths)} frames to {resolve_time_pattern(output_dir)}")
-        return (paths, preview,)
+        # 单帧可以是固定文件名
+        save_path = os.path.join(dir_path, filename_pattern)
+        save_comfyui_image(image, save_path, fmt)
+        preview = tensor_to_preview(image)
+
+        return save_path, preview
 
 
-class FFmpegVideoCombineLowMem:
-    @classmethod
-    def INPUT_TYPES(cls):
+class SaveFrameBatchToDisk(Node):
+    title = "批量保存帧到磁盘"
+    type = "Rynode/LowMem"
+
+    def inputs(self):
         return {
-            "required": {
-                "frames_dir": ("STRING", {"default": "./frames/%Y%m%d_%H%M%S"}),
-                "output_video_path": ("STRING", {"default": "./output/video_{timestamp}.mp4"}),
-            },
-            "optional": {
-                "fps": ("INT", {"default": 30, "min": 1, "max": 60}),
-                "codec": ("STRING", {"default": "libx264"}),
-                "crf": ("INT", {"default": 23, "min": 0, "max": 51}),
-                "frame_pattern": ("STRING", {"default": "frame_{index:04d}.png"}),
-                "delete_frames": ("BOOL", {"default": True}),
-                "keep_last_frame": ("BOOL", {"default": True}),
-            },
+            "images": ImageType,
+            "output_dir": StringType,
+            "filename_pattern": StringType,
+            "fmt": StringType
         }
 
-    RETURN_TYPES = ("STRING",)
-    RETURN_NAMES = ("video_path",)
-    FUNCTION = "combine_video"
-    CATEGORY = "Rynode/LowMem"
+    def outputs(self):
+        return {
+            "output_dir": StringType
+        }
 
-    def combine_video(
+    def process(self, images, output_dir, filename_pattern="frame_%04d.png", fmt="png"):
+        dir_path = parse_time_tokens(output_dir)
+        os.makedirs(dir_path, exist_ok=True)
+
+        # 校验 filename_pattern 必须包含序列占位符
+        if "{index}" not in filename_pattern and "%04d" not in filename_pattern:
+            raise ValueError("批量保存必须使用序列占位符，例如 frame_%04d.png 或 frame_{index}.png")
+
+        for idx, img in enumerate(images):
+            if "{index}" in filename_pattern:
+                name = filename_pattern.format(index=idx+1)
+            else:
+                # 支持 %04d 样式
+                name = filename_pattern % (idx+1)
+            save_path = os.path.join(dir_path, name)
+            save_comfyui_image(img, save_path, fmt)
+
+        return dir_path
+
+class FFmpegVideoCombineLowMem(Node):
+    title = "FFmpeg 视频合成（低内存）"
+    type = "Rynode/LowMem"
+
+    def inputs(self):
+        return {
+            "frames_dir": StringType,
+            "output_video_path": StringType,
+            "fps": int,
+            "codec": StringType,
+            "crf": int,
+            "frame_pattern": StringType,
+            "delete_frames": bool,
+            "keep_last_frame": bool
+        }
+
+    def outputs(self):
+        return {
+            "video_path": StringType
+        }
+
+    def process(
         self,
-        frames_dir: str = "./frames/%Y%m%d_%H%M%S",
-        output_video_path: str = "./output/video_{timestamp}.mp4",
-        fps: int = 30,
-        codec: str = "libx264",
-        crf: int = 23,
-        frame_pattern: str = "frame_%04d.png",
-        delete_frames: bool = True,
-        keep_last_frame: bool = True,
+        frames_dir,
+        output_video_path,
+        fps=30,
+        codec="libx264",
+        crf=23,
+        frame_pattern="frame_%04d.png",
+        delete_frames=True,
+        keep_last_frame=True
     ):
-        # 解析时间格式，支持自定义 timestamp 标记
-        from datetime import datetime
-        now = datetime.now()
-        if "{timestamp}" in output_video_path:
-            output_video_path = output_video_path.replace("{timestamp}", now.strftime("%Y%m%d_%H%M%S"))
-        frames_dir_resolved = resolve_time_pattern(frames_dir)
+        # 替换时间占位符
+        frames_dir = parse_time_tokens(frames_dir)
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_video_path = output_video_path.replace("{timestamp}", timestamp)
+        os.makedirs(os.path.dirname(output_video_path), exist_ok=True)
 
-        # 绝对路径修正
-        from pathlib import Path
-        frames_dir_path = Path(frames_dir_resolved).expanduser().resolve()
-        output_video_path = Path(output_video_path).expanduser().resolve()
+        # FFmpeg 命令
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-framerate", str(fps),
+            "-i", os.path.join(frames_dir, frame_pattern),
+            "-c:v", codec,
+            "-crf", str(crf),
+            "-pix_fmt", "yuv420p",
+            output_video_path
+        ]
+        subprocess.run(cmd, check=True)
 
-        logger.info(f"[FFmpegVideoCombineLowMem] Combining frames from {frames_dir_path} to video {output_video_path}")
-
-        combine_frames_ffmpeg(
-            str(frames_dir_path),
-            str(output_video_path),
-            fps=fps,
-            codec=codec,
-            crf=crf,
-            frame_pattern=frame_pattern,
-        )
-
+        # 删除临时帧
         if delete_frames:
-            clean_frames_folder(str(frames_dir_path), keep_last=keep_last_frame)
+            import glob
+            files = sorted(glob.glob(os.path.join(frames_dir, "*")))
+            if keep_last_frame and files:
+                files_to_delete = files[:-1]
+            else:
+                files_to_delete = files
+            for f in files_to_delete:
+                os.remove(f)
 
-        return (str(output_video_path),)
-
-
-NODE_CLASS_MAPPINGS = {
-    "保存单帧到磁盘 / SaveSingleFrameToDisk": SaveSingleFrameToDisk,
-    "批量保存帧到磁盘 / SaveFrameBatchToDisk": SaveFrameBatchToDisk,
-    "FFmpeg 视频合成（低内存） / FFmpegVideoCombineLowMem": FFmpegVideoCombineLowMem,
-}
-
-NODE_DISPLAY_NAME_MAPPINGS = {
-    SaveSingleFrameToDisk: "保存单帧到磁盘 / SaveSingleFrameToDisk",
-    SaveFrameBatchToDisk: "批量保存帧到磁盘 / SaveFrameBatchToDisk",
-    FFmpegVideoCombineLowMem: "FFmpeg 视频合成（低内存） / FFmpegVideoCombineLowMem",
-}
+        return output_video_path
