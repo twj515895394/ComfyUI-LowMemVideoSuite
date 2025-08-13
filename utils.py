@@ -166,3 +166,45 @@ class FrameSaver:
         if not self.has_index_placeholder:
             raise ValueError("filename_pattern must contain a sequence placeholder like {index} or %d for batch saving")
         return [self.save_pil(im) for im in imgs]
+
+
+def combine_frames_ffmpeg(frames_dir: str, output_path: str, fps: int = 30, codec: str = "libx264", crf: int = 23, frame_pattern: str = "frame_%04d.png", extra_flags: list | None = None, timeout: int | None = None):
+    p = resolve_path_with_output_base(resolve_time_pattern(frames_dir))
+    if not p.exists():
+        raise FileNotFoundError(f"Frames directory not found: {p}")
+    input_pattern = str(p / frame_pattern)
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-framerate", str(fps),
+        "-i", input_pattern,
+        "-c:v", codec,
+        "-crf", str(crf),
+        "-pix_fmt", "yuv420p",
+        str(output_path),
+    ]
+    if extra_flags:
+        cmd.extend(extra_flags)
+    logger.info("Running ffmpeg: %s", " ".join(cmd))
+    subprocess.run(cmd, check=True)
+
+
+def clean_frames_folder(frames_dir: str, keep_last: bool = True):
+    p = resolve_path_with_output_base(resolve_time_pattern(frames_dir))
+    if not p.exists():
+        return
+    files = sorted([f for f in p.iterdir() if f.is_file()])
+    if not files:
+        try:
+            p.rmdir()
+        except Exception:
+            pass
+        return
+    if keep_last and len(files) > 0:
+        for f in files[:-1]:
+            try:
+                f.unlink()
+            except Exception as e:
+                logger.warning("Failed to delete %s: %s", f, e)
+    else:
+        shutil.rmtree(p, ignore_errors=True)
