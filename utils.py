@@ -73,33 +73,47 @@ def _tensor_to_numpy_img(t) -> "np.ndarray":
     if not torch.is_tensor(t):
         raise TypeError("Expected a torch.Tensor")
     x = t.detach().cpu()
+    logger.info(f"Input tensor shape: {x.shape}, dtype: {x.dtype}")
+    
+    # ComfyUI VAE解码输出的tensor形状为[batch, height, width, channels]，通常是[1, H, W, 3]
+    # 如果是4维，取第0个批次
     if x.ndim == 4:
         x = x[0]
     if x.ndim != 3:
-        raise ValueError(f"Expected image tensor of 3 dims (HWC/CHW), got shape {tuple(x.shape)}")
-    if x.shape[0] in (1,3) and x.shape[-1] not in (1,3):
-        x = x.permute(1,2,0)
+        raise ValueError(f"Expected image tensor of 3 dims (HWC), got shape {tuple(x.shape)}")
+    
+    # 确保形状是(H, W, C)格式，其中C是通道数(1或3)
+    # ComfyUI输出的已经是HWC格式，不需要转换
     a = x.numpy()
-    a = a.clip(0,1)
+    a = a.clip(0, 1)
     a = (a * 255.0).round().astype("uint8")
+    logger.info(f"Output array shape: {a.shape}, dtype: {a.dtype}")
     if a.shape[-1] == 1:
         a = a[..., 0]
     return a
 
 def to_pil(img: Union[Image.Image, "np.ndarray", "torch.Tensor"]) -> Image.Image:
+    logger.info(f"Converting to PIL, input type: {type(img)}")
     if isinstance(img, Image.Image):
+        logger.info("Input is already PIL Image")
         return img
     if torch is not None and torch.is_tensor(img):
+        logger.info("Input is torch.Tensor, converting...")
         arr = _tensor_to_numpy_img(img)
-        return Image.fromarray(arr)
+        pil_img = Image.fromarray(arr)
+        logger.info(f"PIL Image created, size: {pil_img.size}, mode: {pil_img.mode}")
+        return pil_img
     if np is not None and isinstance(img, np.ndarray):
+        logger.info("Input is numpy array, converting...")
         a = img
         if a.dtype != "uint8":
             a = a.clip(0,1)
             a = (a * 255.0).round().astype("uint8")
         if a.ndim == 3 and a.shape[-1] == 1:
             a = a[...,0]
-        return Image.fromarray(a)
+        pil_img = Image.fromarray(a)
+        logger.info(f"PIL Image created from numpy, size: {pil_img.size}, mode: {pil_img.mode}")
+        return pil_img
     raise TypeError("Unsupported image type for to_pil")
 
 def pil_to_preview_tensor(img: Image.Image):
