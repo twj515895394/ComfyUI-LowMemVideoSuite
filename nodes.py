@@ -36,6 +36,7 @@ class SaveSingleFrameToDisk:
     CATEGORY = "Rynode/LowMem"
 
     def save_single(self, image, output_dir: str = "./frames/%Y%m%d_%H%M%S", filename_pattern: str = "frame.png", fmt: str = "png"):
+        logger.info(f"SaveSingleFrameToDisk called with: output_dir={output_dir}, filename_pattern={filename_pattern}, fmt={fmt}")
         # 对于单帧保存，可以直接使用FrameSaver
         saver = FrameSaver(output_dir, filename_pattern, fmt)
         preview_img = to_pil(image)
@@ -65,15 +66,18 @@ class SaveFrameBatchToDisk:
     CATEGORY = "Rynode/LowMem"
 
     def save_batch(self, images, output_dir: str = "./frames/%Y%m%d_%H%M%S", filename_pattern: str = "frame_{index:04d}.png", fmt: str = "png"):
+        logger.info(f"SaveFrameBatchToDisk called with: output_dir={output_dir}, filename_pattern={filename_pattern}, fmt={fmt}")
         # 检查filename_pattern是否包含序列占位符
         if "{index" not in filename_pattern and "%d" not in filename_pattern:
             raise ValueError("filename_pattern must contain a sequence placeholder like {index} or %d")
             
         saver = FrameSaver(output_dir, filename_pattern, fmt)
         pil_list = pil_list_from_image_input(images)
+        logger.info(f"Processing {len(pil_list)} images")
         paths = []
         for im in pil_list:
-            paths.append(saver.save_pil(im))
+            path = saver.save_pil(im)
+            paths.append(path)
         preview = pil_to_preview_tensor(pil_list[-1])
         logger.info(f"[SaveFrameBatchToDisk] Saved {len(paths)} frames to {resolve_time_pattern(output_dir)}")
         return (paths, preview,)

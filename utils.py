@@ -22,12 +22,30 @@ logger = logging.getLogger(__name__)
 
 def resolve_path_with_output_base(path: str) -> Path:
     p = Path(path)
+    logger.info(f"Resolving path: {path}")
+    logger.info(f"Is absolute: {p.is_absolute()}")
     if p.is_absolute():
+        logger.info(f"Returning absolute path: {p}")
         return p
+    # 获取ComfyUI根目录，通过查找custom_nodes目录
     cwd = Path.cwd()
-    comfy_root = cwd
+    logger.info(f"Current working directory: {cwd}")
+    # 检查是否在custom_nodes目录下
+    if "custom_nodes" in str(cwd):
+        # 找到ComfyUI根目录（custom_nodes的父目录）
+        comfy_root = cwd
+        while comfy_root.name != "custom_nodes" and comfy_root.parent != comfy_root:
+            comfy_root = comfy_root.parent
+        if comfy_root.parent != comfy_root:
+            comfy_root = comfy_root.parent
+    else:
+        comfy_root = cwd
     output_dir = comfy_root / "output"
-    return output_dir / p
+    result_path = output_dir / p
+    logger.info(f"ComfyUI root: {comfy_root}")
+    logger.info(f"Output directory: {output_dir}")
+    logger.info(f"Final resolved path: {result_path}")
+    return result_path
 
 def resolve_time_pattern(path: str) -> str:
     import re
@@ -137,6 +155,10 @@ class FrameSaver:
         return (max(nums) + 1) if nums else 0
 
     def save_pil(self, image: Image.Image) -> str:
+        logger.info(f"Saving image to directory: {self.output_dir}")
+        logger.info(f"Filename pattern: {self.filename_pattern}")
+        logger.info(f"Has index placeholder: {self.has_index_placeholder}")
+        logger.info(f"Current index: {self.index}")
         ensure_dir(self.output_dir)
         # 如果文件名不包含index占位符，则使用固定文件名
         if self.has_index_placeholder:
@@ -148,11 +170,18 @@ class FrameSaver:
         else:
             filename = self.filename_pattern
         path = self.output_dir / filename
+        logger.info(f"Full save path: {path}")
         try:
             image.save(str(path), format=self.fmt.upper())
+            logger.info(f"Image saved successfully with format: {self.fmt.upper()}")
         except Exception as e:
             logger.warning("Save with explicit format failed (%s), fallback to auto: %s", self.fmt, e)
-            image.save(str(path))
+            try:
+                image.save(str(path))
+                logger.info("Image saved successfully with auto format")
+            except Exception as e2:
+                logger.error("Failed to save image: %s", e2)
+                raise
         self.index += 1
         logger.info("Saved frame: %s", path)
         return str(path)
