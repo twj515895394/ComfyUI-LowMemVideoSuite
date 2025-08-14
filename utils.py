@@ -72,25 +72,14 @@ def _tensor_to_numpy_img(t) -> "np.ndarray":
         raise RuntimeError("torch is required to convert tensor images")
     if not torch.is_tensor(t):
         raise TypeError("Expected a torch.Tensor")
+    logger.info(f"Input tensor shape: {t.shape}, dtype: {t.dtype}")
+    
+    # ComfyUI VAE解码输出的tensor形状为[batch, height, width, channels]
     x = t.detach().cpu()
-    logger.info(f"Input tensor shape: {x.shape}, dtype: {x.dtype}")
-    
-    # ComfyUI VAE解码输出的tensor形状为[batch, height, width, channels]，通常是[1, H, W, 3]
-    # 如果是4维，取第0个批次
-    if x.ndim == 4:
-        x = x[0]
-    if x.ndim != 3:
-        raise ValueError(f"Expected image tensor of 3 dims (HWC), got shape {tuple(x.shape)}")
-    
-    # 确保形状是(H, W, C)格式，其中C是通道数(1或3)
-    # ComfyUI输出的已经是HWC格式，不需要转换
-    a = x.numpy()
-    a = a.clip(0, 1)
-    a = (a * 255.0).round().astype("uint8")
-    logger.info(f"Output array shape: {a.shape}, dtype: {a.dtype}")
-    if a.shape[-1] == 1:
-        a = a[..., 0]
-    return a
+    # 参考其他插件的实现方式
+    arr = np.clip(255. * x.numpy().squeeze(), 0, 255).astype(np.uint8)
+    logger.info(f"Output array shape: {arr.shape}, dtype: {arr.dtype}")
+    return arr
 
 def to_pil(img: Union[Image.Image, "np.ndarray", "torch.Tensor"]) -> Image.Image:
     logger.info(f"Converting to PIL, input type: {type(img)}")
@@ -105,12 +94,7 @@ def to_pil(img: Union[Image.Image, "np.ndarray", "torch.Tensor"]) -> Image.Image
         return pil_img
     if np is not None and isinstance(img, np.ndarray):
         logger.info("Input is numpy array, converting...")
-        a = img
-        if a.dtype != "uint8":
-            a = a.clip(0,1)
-            a = (a * 255.0).round().astype("uint8")
-        if a.ndim == 3 and a.shape[-1] == 1:
-            a = a[...,0]
+        a = np.clip(255. * img.squeeze(), 0, 255).astype(np.uint8)
         pil_img = Image.fromarray(a)
         logger.info(f"PIL Image created from numpy, size: {pil_img.size}, mode: {pil_img.mode}")
         return pil_img
