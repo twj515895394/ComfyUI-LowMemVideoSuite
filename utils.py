@@ -77,7 +77,14 @@ def _tensor_to_numpy_img(t) -> "np.ndarray":
     # ComfyUI VAE解码输出的tensor形状为[batch, height, width, channels]
     x = t.detach().cpu()
     # 参考其他插件的实现方式
-    arr = np.clip(255. * x.numpy().squeeze(), 0, 255).astype(np.uint8)
+    # 修复squeeze问题，只移除第一个维度（batch维度），如果batch=1
+    arr = np.clip(255. * x.numpy(), 0, 255).astype(np.uint8)
+    # 如果是批量图像，只取最后一张；如果是单张图像，保持不变
+    if arr.shape[0] == 1:
+        arr = arr[0]
+    elif arr.shape[0] > 1:
+        # 取最后一张图像而不是第一张
+        arr = arr[-1]
     logger.info(f"Output array shape: {arr.shape}, dtype: {arr.dtype}")
     return arr
 
